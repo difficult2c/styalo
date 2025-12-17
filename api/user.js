@@ -1,39 +1,34 @@
-import fs from "fs";
-import path from "path";
-
-const USERNAME = "styalo";
-const CACHE_FILE = path.resolve("./data/trHistory.json");
-const CACHE_INTERVAL = 24 * 60 * 60 * 1000; // 24h
-
-// Ensure data folder exists
-try { fs.mkdirSync(path.resolve("./data")); } catch {}
-
 export default async function handler(req, res) {
-  // Read previous history
-  let history = [];
-  try {
-    history = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
-  } catch {}
+  const USERNAME = "styalo";
 
-  const now = Date.now();
-  let lastEntry = history[history.length - 1] || { tr: 0, ts: 0 };
-  
-  // Fetch new TR if more than 24h passed
-  if (now - lastEntry.ts > CACHE_INTERVAL) {
-    const r = await fetch(`https://ch.tetr.io/api/users/${USERNAME}`);
-    const data = await r.json();
-    if (data.success) {
-      const currentTR = data.data.league?.rating || 0;
-      history.push({ ts: now, tr: currentTR });
-      fs.writeFileSync(CACHE_FILE, JSON.stringify(history, null, 2));
-      lastEntry = { ts: now, tr: currentTR };
-    }
+  // Fetch TETR.IO match history
+  const historyRes = await fetch(
+    `https://ch.tetr.io/api/records/${encodeURIComponent(USERNAME)}`
+  );
+  const historyData = await historyRes.json();
+
+  if (!historyData.success) {
+    return res.status(500).json({ error: "Failed to fetch match history" });
   }
 
-  // Compute delta vs previous entry
-  const previousTR = history.length > 1 ? history[history.length - 2].tr : lastEntry.tr;
-  const delta = lastEntry.tr - previousTR;
+  const points = historyData.data.points || [];
+  // Map matches to objects with timestamp and TR after match
+  const trMatches = points.map(p => ({
+    ts: historyData.data.startTime + p[0], // actual timestamp
+    trAfter: p[2] // TR after match
+  }));
 
-  res.setHeader("Content-Type", "application/json");
-  res.json({ tr: lastEntry.tr, delta, history });
+  // Compute deltas
+  let latest = trMatches[trMatches.length - 1] || { trAfter: 0 };
+  let earliestToday = trMatches.find(m =>
+    new Date(m.ts) >= new Date(Date.now() - 24 * 60 * 60 * 1000)
+  ) || latest;
+
+  const delta24h = latest.trAfter - earliestToday.trAfter;
+
+  res.json({
+    currentTR: latest.trAfter,
+    delta24h,
+    trMatches
+  });
 }
