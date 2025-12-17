@@ -6,36 +6,39 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-#tr { font-size: 2em; }
+#tr { font-size: 2em; margin-bottom: 20px; }
+canvas { max-width: 90%; height: 300px; }
 </style>
 </head>
 <body>
 <h1>Styalo TR Tracker</h1>
 <div id="tr">Loading...</div>
-<canvas id="trChart" width="600" height="300"></canvas>
+<canvas id="trChart"></canvas>
 
 <script>
 async function fetchTR() {
   const res = await fetch("/api/user");
   const data = await res.json();
   document.getElementById("tr").textContent = `${data.tr} TR (${data.delta >= 0 ? "+" : ""}${data.delta})`;
-  
-  let history = JSON.parse(localStorage.getItem("trHistory") || "[]");
-  history.push({ ts: Date.now(), tr: data.tr });
-  localStorage.setItem("trHistory", JSON.stringify(history));
-
-  drawChart(history);
+  drawChart(data.history);
 }
 
 function drawChart(history) {
   const ctx = document.getElementById("trChart").getContext("2d");
   const labels = history.map(h => new Date(h.ts).toLocaleDateString());
   const values = history.map(h => h.tr);
-  new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets: [{ label: "TR", data: values, borderColor: "blue", fill: false }] },
-    options: { responsive: true, maintainAspectRatio: false }
-  });
+
+  if (window.trChart) {
+    window.trChart.data.labels = labels;
+    window.trChart.data.datasets[0].data = values;
+    window.trChart.update();
+  } else {
+    window.trChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ label: "TR", data: values, borderColor: "blue", fill: false }] },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
 }
 
 fetchTR();
