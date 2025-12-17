@@ -1,31 +1,39 @@
 import fs from "fs";
 import path from "path";
 
-const CACHE_FILE = path.resolve("./data/tr.json");
 const USERNAME = "styalo";
-const CACHE_INTERVAL = 24 * 60 * 60 * 1000; // 1 day
+const CACHE_FILE = path.resolve("./data/trHistory.json");
+const CACHE_INTERVAL = 24 * 60 * 60 * 1000; // 24h
+
+// Ensure data folder exists
+try { fs.mkdirSync(path.resolve("./data")); } catch {}
 
 export default async function handler(req, res) {
-  // Read previous TR
-  let previousData = { tr: 0, ts: 0 };
+  // Read previous history
+  let history = [];
   try {
-    previousData = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
+    history = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
   } catch {}
 
   const now = Date.now();
-
-  // If last cached over 24h ago, refresh TR
-  let currentTR = previousData.tr;
-  if (now - previousData.ts > CACHE_INTERVAL) {
-    const response = await fetch(`https://ch.tetr.io/api/users/${USERNAME}`);
-    const data = await response.json();
+  let lastEntry = history[history.length - 1] || { tr: 0, ts: 0 };
+  
+  // Fetch new TR if more than 24h passed
+  if (now - lastEntry.ts > CACHE_INTERVAL) {
+    const r = await fetch(`https://ch.tetr.io/api/users/${USERNAME}`);
+    const data = await r.json();
     if (data.success) {
-      currentTR = data.data.league?.rating || 0; // TR value
-      fs.writeFileSync(CACHE_FILE, JSON.stringify({ tr: currentTR, ts: now }));
+      const currentTR = data.data.league?.rating || 0;
+      history.push({ ts: now, tr: currentTR });
+      fs.writeFileSync(CACHE_FILE, JSON.stringify(history, null, 2));
+      lastEntry = { ts: now, tr: currentTR };
     }
   }
 
-  const delta = currentTR - previousData.tr;
+  // Compute delta vs previous entry
+  const previousTR = history.length > 1 ? history[history.length - 2].tr : lastEntry.tr;
+  const delta = lastEntry.tr - previousTR;
+
   res.setHeader("Content-Type", "application/json");
-  res.json({ tr: currentTR, delta });
+  res.json({ tr: lastEntry.tr, delta, history });
 }
